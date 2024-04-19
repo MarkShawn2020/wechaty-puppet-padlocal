@@ -6,7 +6,7 @@ import PadLocal from "padlocal-client-ts/dist/proto/padlocal_pb.js";
 import { genIdempotentId } from "padlocal-client-ts/dist/utils/Utils.js";
 import { CacheManager, RoomMemberMap } from "./padlocal/cache-manager.js";
 import { isIMContactId, isRoomId } from "./padlocal/utils/is-type.js";
-import { parseAppmsgMessagePayload } from "./padlocal/messages/message-appmsg.js";
+import { parseAppmsgMessagePayload, deserializeRefMsgPayload } from "./padlocal/messages/message-appmsg.js";
 import { parseMiniProgramMessagePayload } from "./padlocal/messages/message-miniprogram.js";
 import { parseEvent, EventType } from "./padlocal/events/mod.js";
 import * as XMLParser from "fast-xml-parser";
@@ -51,7 +51,6 @@ if (logLevel) {
 PadLocalLog.setLogger(log);
 
 class PuppetPadlocal extends PUPPET.Puppet {
-
   public static log = PadLocalLog;
 
   private _client?: PadLocalClient;
@@ -77,7 +76,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       PadLocal need a token before it can be used,
       Please set WECHATY_PUPPET_PADLOCAL_TOKEN then retry again.
 
-    `,
+    `
         );
 
         throw new Error("You need a valid WECHATY_PUPPET_PADLOCAL_TOKEN to use PuppetPadlocal");
@@ -121,7 +120,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       [PUPPET.types.ScanStatus.Timeout]: "Timeout",
     };
 
-    const onQrCodeEvent = async(qrCodeEvent: PadLocal.QRCodeEvent) => {
+    const onQrCodeEvent = async (qrCodeEvent: PadLocal.QRCodeEvent) => {
       let scanStatus: PUPPET.types.ScanStatus = PUPPET.types.ScanStatus.Unknown;
       let qrCodeImageURL: string | undefined;
       switch (qrCodeEvent.getStatus()) {
@@ -145,7 +144,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
 
       log.silly(
         PRE,
-        `scan event, status: ${ScanStatusName[scanStatus]}${qrCodeImageURL ? ", with qrcode: " + qrCodeImageURL : ""}`,
+        `scan event, status: ${ScanStatusName[scanStatus]}${qrCodeImageURL ? ", with qrcode: " + qrCodeImageURL : ""}`
       );
 
       this.emit("scan", {
@@ -169,16 +168,16 @@ class PuppetPadlocal extends PUPPET.Puppet {
         log.info(PRE, `start login with type: ${LoginTypeName[loginType]}`);
       },
 
-      onLoginSuccess: async(_) => {
+      onLoginSuccess: async (_) => {
         this.wrapAsync(
-          this._onPushSerialExecutor.execute(async() => {
+          this._onPushSerialExecutor.execute(async () => {
             const userName = this._client!.selfContact!.getUsername();
             log.silly(PRE, `login success: ${userName}`);
 
             await this.login(this._client!.selfContact!.getUsername());
 
             log.silly(PRE, "login success: DONE");
-          }),
+          })
         );
       },
 
@@ -187,10 +186,9 @@ class PuppetPadlocal extends PUPPET.Puppet {
       onQrCodeEvent,
 
       // Will sync message and contact after login success, since last time login.
-      onSync: async(syncEvent: PadLocal.SyncEvent) => {
-
+      onSync: async (syncEvent: PadLocal.SyncEvent) => {
         this.wrapAsync(
-          this._onPushSerialExecutor.execute(async() => {
+          this._onPushSerialExecutor.execute(async () => {
             log.silly(PRE, `login sync event: ${JSON.stringify(syncEvent.toObject())}`);
 
             for (const contact of syncEvent.getContactList()) {
@@ -200,24 +198,24 @@ class PuppetPadlocal extends PUPPET.Puppet {
             for (const message of syncEvent.getMessageList()) {
               await this._onPushMessage(message);
             }
-          }),
+          })
         );
       },
     })
       .then(() => {
         this.wrapAsync(
-          this._onPushSerialExecutor.execute(async() => {
+          this._onPushSerialExecutor.execute(async () => {
             log.silly(PRE, "on ready");
 
             this.emit("ready", {
               data: "ready",
             });
-          }),
+          })
         );
 
         return null;
       })
-      .catch(async(error) => {
+      .catch(async (error) => {
         log.error(`start client failed: ${error.stack}`);
         await this._stopClient(true);
       });
@@ -367,13 +365,13 @@ class PuppetPadlocal extends PUPPET.Puppet {
     return FileBox.fromUrl(contact.avatar, { name: `avatar-${contactId}.jpg` });
   }
 
-  override  async contactList(): Promise<string[]> {
+  override async contactList(): Promise<string[]> {
     return this._cacheMgr!.getContactIds();
   }
 
   override contactCorporationRemark(contactId: string, corporationRemark: string | null): Promise<void> {
     throw new Error(
-      `contactCorporationRemark(${contactId}, ${corporationRemark}) called failed: Method not supported.`,
+      `contactCorporationRemark(${contactId}, ${corporationRemark}) called failed: Method not supported.`
     );
   }
 
@@ -446,7 +444,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
   }
 
   override async tagContactDelete(tagName: string): Promise<void> {
-    const label = (await this._findTagWithName(tagName, false));
+    const label = await this._findTagWithName(tagName, false);
     if (!label) {
       throw new Error(`tag:${tagName} doesn't exist`);
     }
@@ -492,7 +490,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
 
   override async friendshipAccept(friendshipId: string): Promise<void> {
     const friendship: PUPPET.payloads.FriendshipReceive = (await this.friendshipRawPayload(
-      friendshipId,
+      friendshipId
     )) as PUPPET.payloads.FriendshipReceive;
     const userName = friendship.contactId;
 
@@ -676,7 +674,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       case PUPPET.types.Message.MiniProgram: {
         const thumbData = await this._client!.api.getMessageMiniProgramThumb(
           messagePayload.content,
-          messagePayload.tousername,
+          messagePayload.tousername
         );
         return FileBox.fromBuffer(thumbData, `message-${messageId}-miniprogram-thumb.jpg`);
       }
@@ -689,7 +687,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           try {
             const urlThumbData = await this._client!.api.getMessageAttachThumb(
               messagePayload.content,
-              messagePayload.tousername,
+              messagePayload.tousername
             );
             return FileBox.fromBuffer(urlThumbData, `message-${messageId}-url-thumb.jpg`);
           } catch (e) {
@@ -760,10 +758,10 @@ class PuppetPadlocal extends PUPPET.Puppet {
       .setStranger(contactPayload.stranger);
     const response = await this._client!.api.sendContactCardMessage(genIdempotentId(), toUserName, contact);
 
-    const pushContent
-      = (isRoomId(toUserName) ? `${this._client!.selfContact!.getNickname()}: ` : "")
-      + "向你推荐了"
-      + contact.getNickname();
+    const pushContent =
+      (isRoomId(toUserName) ? `${this._client!.selfContact!.getNickname()}: ` : "") +
+      "向你推荐了" +
+      contact.getNickname();
 
     await this._onSendMessage(
       new PadLocal.Message()
@@ -773,7 +771,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         .setContent(pushContent)
         .setPushcontent(pushContent),
       response.getMsgid(),
-      response.getMessagerevokeinfo()!,
+      response.getMessagerevokeinfo()!
     );
 
     return response.getMsgid();
@@ -793,7 +791,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         emotionPayload.md5,
         emotionPayload.len,
         emotionPayload.type,
-        emotionPayload.gameext,
+        emotionPayload.gameext
       );
 
       const pushContent = isRoomId(toUserName)
@@ -810,7 +808,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           .setContent(content)
           .setPushcontent(pushContent),
         response.getMsgid(),
-        response.getMessagerevokeinfo()!,
+        response.getMessagerevokeinfo()!
       );
 
       return response.getMsgid();
@@ -830,7 +828,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           .setContent(pushContent)
           .setPushcontent(pushContent),
         response.getMsgid(),
-        response.getMessagerevokeinfo()!,
+        response.getMessagerevokeinfo()!
       );
 
       return response.getMsgid();
@@ -842,7 +840,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         genIdempotentId(),
         toUserName,
         audioData,
-        fileBox.metadata["voiceLength"],
+        fileBox.metadata["voiceLength"]
       );
 
       const pushContent = isRoomId(toUserName) ? `${this._client!.selfContact!.getNickname()}: [语音]` : "[语音]";
@@ -855,7 +853,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           .setContent(pushContent)
           .setPushcontent(pushContent),
         response.getMsgid(),
-        response.getMessagerevokeinfo()!,
+        response.getMessagerevokeinfo()!
       );
 
       return response.getMsgid();
@@ -875,7 +873,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           .setContent(pushContent)
           .setPushcontent(pushContent),
         response.getMsgid(),
-        response.getMessagerevokeinfo()!,
+        response.getMessagerevokeinfo()!
       );
 
       return response.getMsgid();
@@ -899,7 +897,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           .setContent(pushContent)
           .setPushcontent(pushContent),
         response.getMsgid(),
-        response.getMessagerevokeinfo()!,
+        response.getMessagerevokeinfo()!
       );
 
       return response.getMsgid();
@@ -924,7 +922,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       thumbImageData = await this._client!.api.getEncryptedFile(
         PadLocal.EncryptedFileType.IMAGE_THUMB,
         mpPayload.thumbUrl,
-        hexStringToBytes(mpPayload.thumbKey),
+        hexStringToBytes(mpPayload.thumbKey)
       );
     } else if (mpPayload.thumbUrl) {
       // 2. http url
@@ -945,7 +943,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       genIdempotentId(),
       toUserName,
       miniProgram,
-      thumbImageData,
+      thumbImageData
     );
     const pushContent = isRoomId(toUserName)
       ? `${this._client!.selfContact!.getNickname()}: [小程序] ${mpPayload.title}`
@@ -959,7 +957,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         .setContent(response.getMsgcontent())
         .setPushcontent(pushContent),
       response.getMsgid(),
-      response.getMessagerevokeinfo()!,
+      response.getMessagerevokeinfo()!
     );
 
     return response.getMsgid();
@@ -970,7 +968,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       genIdempotentId(),
       toUserName,
       text,
-      mentionIdList,
+      mentionIdList
     );
 
     const pushContent = isRoomId(toUserName) ? `${this._client!.selfContact!.getNickname()}: ${text}` : text;
@@ -983,7 +981,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         .setContent(text)
         .setPushcontent(pushContent),
       response.getMsgid(),
-      response.getMessagerevokeinfo()!,
+      response.getMessagerevokeinfo()!
     );
 
     return response.getMsgid();
@@ -1011,7 +1009,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
         .setContent(response.getMsgcontent())
         .setPushcontent(pushContent),
       response.getMsgid(),
-      response.getMessagerevokeinfo()!,
+      response.getMessagerevokeinfo()!
     );
 
     return response.getMsgid();
@@ -1028,7 +1026,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
       new PadLocal.MessageRevokeInfo()
         .setClientmsgid(messageRevokeInfo.clientmsgid)
         .setNewclientmsgid(messageRevokeInfo.newclientmsgid)
-        .setCreatetime(messageRevokeInfo.createtime),
+        .setCreatetime(messageRevokeInfo.createtime)
     );
 
     return true;
@@ -1068,7 +1066,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
           toUserName,
           messagePayload.content,
           messagePayload.type,
-          messagePayload.tousername,
+          messagePayload.tousername
         );
         newMessageId = response.getMsgid();
 
@@ -1089,7 +1087,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
             .setContent(response.getMsgcontent())
             .setPushcontent(pushContent),
           response.getMsgid(),
-          response.getMessagerevokeinfo()!,
+          response.getMessagerevokeinfo()!
         );
 
         break;
@@ -1196,7 +1194,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
     let ret = await this._cacheMgr!.getContact(id);
 
     if (!ret) {
-      ret = await CachedPromiseFunc(`contactRawPayload-${id}`, async() => {
+      ret = await CachedPromiseFunc(`contactRawPayload-${id}`, async () => {
         const contact = await this._refreshContact(id);
         return contact.toObject();
       });
@@ -1239,7 +1237,9 @@ class PuppetPadlocal extends PUPPET.Puppet {
     return roomMemberMap[contactId]!;
   }
 
-  override async roomMemberRawPayloadParser(rawPayload: PadLocal.ChatRoomMember.AsObject): Promise<PUPPET.payloads.RoomMember> {
+  override async roomMemberRawPayloadParser(
+    rawPayload: PadLocal.ChatRoomMember.AsObject
+  ): Promise<PUPPET.payloads.RoomMember> {
     return padLocalRoomMemberToWechaty(rawPayload);
   }
 
@@ -1253,7 +1253,9 @@ class PuppetPadlocal extends PUPPET.Puppet {
     return ret;
   }
 
-  override async roomInvitationRawPayloadParser(rawPayload: PUPPET.payloads.RoomInvitation): Promise<PUPPET.payloads.RoomInvitation> {
+  override async roomInvitationRawPayloadParser(
+    rawPayload: PUPPET.payloads.RoomInvitation
+  ): Promise<PUPPET.payloads.RoomInvitation> {
     return rawPayload;
   }
 
@@ -1267,7 +1269,9 @@ class PuppetPadlocal extends PUPPET.Puppet {
     return ret;
   }
 
-  override async friendshipRawPayloadParser(rawPayload: PUPPET.payloads.Friendship): Promise<PUPPET.payloads.Friendship> {
+  override async friendshipRawPayloadParser(
+    rawPayload: PUPPET.payloads.Friendship
+  ): Promise<PUPPET.payloads.Friendship> {
     return rawPayload;
   }
 
@@ -1288,11 +1292,11 @@ class PuppetPadlocal extends PUPPET.Puppet {
     await this.client!.api.syncContact({
       onSync: (contactList: PadLocal.Contact[]) => {
         this.wrapAsync(
-          this._onPushSerialExecutor.execute(async() => {
+          this._onPushSerialExecutor.execute(async () => {
             for (const contact of contactList) {
               await this._onPushContact(contact);
             }
-          }),
+          })
         );
       },
     });
@@ -1505,7 +1509,11 @@ class PuppetPadlocal extends PUPPET.Puppet {
     }
   }
 
-  private async _onSendMessage(partialMessage: PadLocal.Message, messageId: string, messageRevokeInfo: PadLocal.MessageRevokeInfo) {
+  private async _onSendMessage(
+    partialMessage: PadLocal.Message,
+    messageId: string,
+    messageRevokeInfo: PadLocal.MessageRevokeInfo
+  ) {
     partialMessage.setId(messageId);
     partialMessage.setCreatetime(messageRevokeInfo.getCreatetime());
 
@@ -1524,35 +1532,38 @@ class PuppetPadlocal extends PUPPET.Puppet {
   private async _setupClient() {
     this._client = await PadLocalClient.create(this.options.token!, true);
 
-    this._client.on("kickout", this.wrapAsync(
-      async(_detail: KickOutEvent) => {
+    this._client.on(
+      "kickout",
+      this.wrapAsync(async (_detail: KickOutEvent) => {
         if (this.currentUserId) {
           this.emit("logout", { contactId: this.currentUserId, data: _detail.errorMessage });
         }
 
         await this._stopClient(true);
-      }),
+      })
     );
-    this._client.on("message", this.wrapAsync(
-      async(messageList: PadLocal.Message[]) => {
-        await this._onPushSerialExecutor.execute(async() => {
+    this._client.on(
+      "message",
+      this.wrapAsync(async (messageList: PadLocal.Message[]) => {
+        await this._onPushSerialExecutor.execute(async () => {
           for (const message of messageList) {
             // handle message one by one
             await this._onPushMessage(message);
           }
         });
-      },
-    ));
+      })
+    );
 
-    this._client.on("contact", this.wrapAsync(
-      async(contactList: PadLocal.Contact[]) => {
-        await this._onPushSerialExecutor.execute(async() => {
+    this._client.on(
+      "contact",
+      this.wrapAsync(async (contactList: PadLocal.Contact[]) => {
+        await this._onPushSerialExecutor.execute(async () => {
           for (const contact of contactList) {
             await this._onPushContact(contact);
           }
         });
-      },
-    ));
+      })
+    );
 
     if (this._printVersion) {
       // only print once
@@ -1603,7 +1614,11 @@ class PuppetPadlocal extends PUPPET.Puppet {
     this._heartBeatTimer = undefined;
   }
 
-  private async _getMessageImageFileBox(messageId: string, messagePayload: PadLocal.Message.AsObject, imageType: PUPPET.types.Image) {
+  private async _getMessageImageFileBox(
+    messageId: string,
+    messagePayload: PadLocal.Message.AsObject,
+    imageType: PUPPET.types.Image
+  ) {
     const message: PUPPET.payloads.Message = await this.messageRawPayloadParser(messagePayload);
 
     if (message.type !== PUPPET.types.Message.Image) {
@@ -1638,8 +1653,7 @@ class PuppetPadlocal extends PUPPET.Puppet {
 
     return FileBox.fromBuffer(ret.imageData, `message-${messageId}-image-${imageNameSuffix}.jpg`);
   }
-
 }
 
-export { PuppetPadlocal, VERSION };
+export { PuppetPadlocal, VERSION, deserializeRefMsgPayload };
 export default PuppetPadlocal;

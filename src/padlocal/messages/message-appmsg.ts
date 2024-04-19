@@ -103,7 +103,9 @@ export const deserializeRefMsgPayload = (v: string): DeserializedRefMsgPayload =
   return {
     id: z.string().parse(m[1]),
     content: z.string().parse(m[3]),
-    type: z.nativeEnum(AppMessageType).parse(m[2]!),
+    // todo: better hint
+    // @ts-ignore
+    type: z.nativeEnum(AppMessageType).parse(AppMessageType[m[2]!]),
   };
 };
 
