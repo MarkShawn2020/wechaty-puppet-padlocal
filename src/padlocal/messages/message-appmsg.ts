@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+import { z } from "zod";
 import { xmlToJson } from "../utils/xml-to-json.js";
 
 interface AppMsgXmlSchema {
@@ -40,8 +41,8 @@ interface AppMsgXmlSchema {
 
 export enum AppMessageType {
   Text = 1,
-  Img = 2,
-  Audio = 3,
+  Audio = 2,
+  Img = 3,
   Video = 4,
   Url = 5,
   Attach = 6,
@@ -56,6 +57,7 @@ export enum AppMessageType {
   ChatHistory = 19,
   MiniProgram = 33,
   MiniProgramApp = 36, // this is forwardable mini program
+  Quote = 49, // mark@2024-04-19 10:06:27: captured the quote response
   GroupNote = 53,
   ReferMsg = 57,
   Transfers = 2000,
@@ -83,6 +85,27 @@ export interface ReferMsgPayload {
   displayname: string;
   content: string;
 }
+
+export const serializeRefMsgPayload = (payload: ReferMsgPayload) => {
+  // console.log("-- refMsgPayload: ", payload);
+  return `RefMsg(id=${payload.svrid}, type=${AppMessageType[Number(payload.type)]}, content=${payload.content})`;
+};
+
+export type DeserializedRefMsgPayload = {
+  id: string;
+  content: string;
+  type: AppMessageType;
+} | null;
+
+export const deserializeRefMsgPayload = (v: string): DeserializedRefMsgPayload => {
+  const m = /RefMsg\(id=(.*?), type=(.*?), content=(.*?)\)/.exec(v);
+  if (!m) return null;
+  return {
+    id: z.string().parse(m[1]),
+    content: z.string().parse(m[3]),
+    type: z.nativeEnum(AppMessageType).parse(m[2]!),
+  };
+};
 
 export interface AppMessagePayload {
   des?: string;

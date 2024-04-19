@@ -1,10 +1,14 @@
-import * as PUPPET from "wechaty-puppet";
 import type PadLocal from "padlocal-client-ts/dist/proto/padlocal_pb.js";
+import * as PUPPET from "wechaty-puppet";
 import { log } from "wechaty-puppet";
-import { LOGPRE, MessageParser, MessageParserContext } from "./message-parser.js";
 import { AppMessageType, parseAppmsgMessagePayload } from "../../messages/message-appmsg.js";
+import { LOGPRE, MessageParser, MessageParserContext } from "./message-parser.js";
 
-export const appMsgParser: MessageParser = async(padLocalMessage: PadLocal.Message.AsObject, ret: PUPPET.payloads.Message, context: MessageParserContext) => {
+export const appMsgParser: MessageParser = async (
+  padLocalMessage: PadLocal.Message.AsObject,
+  ret: PUPPET.payloads.Message,
+  context: MessageParserContext
+) => {
   if (ret.type !== PUPPET.types.Message.Attachment) {
     return ret;
   }
@@ -18,6 +22,7 @@ export const appMsgParser: MessageParser = async(padLocalMessage: PadLocal.Messa
         ret.type = PUPPET.types.Message.Text;
         ret.text = appPayload.title;
         break;
+      case AppMessageType.Img:
       case AppMessageType.Audio:
         ret.type = PUPPET.types.Message.Url;
         break;
@@ -56,7 +61,10 @@ export const appMsgParser: MessageParser = async(padLocalMessage: PadLocal.Messa
         break;
     }
   } catch (e) {
-    log.warn(LOGPRE, `Error occurred while parse message attachment: ${JSON.stringify(padLocalMessage)} , ${(e as Error).stack}`);
+    log.warn(
+      LOGPRE,
+      `Error occurred while parse message attachment: ${JSON.stringify(padLocalMessage)} , ${(e as Error).stack}`
+    );
   }
 
   return ret;
